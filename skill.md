@@ -33,6 +33,8 @@ Optional:
 - `Open-AutoGLM/memory.json` will be loaded by server mode by default if present
 - `PHONE_AGENT_DEVICE_ID` if multiple Android devices are connected
 
+3) Ensure `adb devices` has at least one device connected
+
 ## API Overview
 
 Base URL (default): `http://127.0.0.1:9090`
@@ -51,7 +53,10 @@ Auth (optional):
 Minimal:
 
 ```json
-{ "task": "打开微信，对文件传输助手发送消息：你好" }
+{ "task": "Open Mixin，Send a message 'Hell0 wOrld' to 28865" }
+```
+```
+{ "task": "Open Mixin，Send a 0.01 SHIB to 28865" }
 ```
 
 Optional fields (all are safe to omit):
@@ -124,7 +129,7 @@ curl http://127.0.0.1:9090/health
 ```bash
 curl -X POST http://127.0.0.1:9090/run \
   -H 'Content-Type: application/json' \
-  -d '{"task":"打开设置"}'
+  -d '{"task":"Open Mixin，Send a message 'Hell0 wOrld' to 28865"}'
 ```
 
 ### Run (streaming)
@@ -132,7 +137,7 @@ curl -X POST http://127.0.0.1:9090/run \
 ```bash
 curl -N -X POST http://127.0.0.1:9090/run/stream \
   -H 'Content-Type: application/json' \
-  -d '{"task":"打开微信，对文件传输助手发送消息：你好"}'
+  -d '{"task":"Open Mixin，Send a message 'Hell0 wOrld' to 28865"}'
 ```
 
 ### PIN/OTP (predictable multi-tap)
@@ -179,7 +184,7 @@ Recommended control loop:
 2) Print `server` events as single-line status
 3) Stream `output` to the user for transparency
 4) Stop when `result` or `error` arrives
-5) To abort: close the HTTP connection (server will cancel)
+5) To abort: close the HTTP connection (server will cancel processing)
 
 Reliability tips:
 - Enforce an idle timeout (e.g., if no SSE line for 30-60s, disconnect and retry)
