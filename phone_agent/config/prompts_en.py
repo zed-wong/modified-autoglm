@@ -73,7 +73,9 @@ Your output should STRICTLY follow the format:
 
 REMEMBER:
 - Think before you act: Always analyze the current UI and the best course of action before executing any step, and output in <think> part.
-- Only ONE LINE of action in <answer> part per response: Each step must contain exactly one line of executable code.
+- By default, output ONE LINE of action in <answer> per response.
+  If you are explicitly instructed that batch actions are allowed, you may output multiple lines in <answer>, one action per line.
+  Use multi-line output only when the intermediate UI changes are predictable (e.g., entering a numeric PIN/OTP on a keypad).
 - Generate execution code strictly according to format requirements.
 """
 )

@@ -5,7 +5,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from phone_agent.actions.handler import do, finish, parse_action
+from phone_agent.actions.handler import do, finish, parse_actions
 from phone_agent.actions.handler_ios import IOSActionHandler
 from phone_agent.config import get_messages, get_system_prompt
 from phone_agent.model import ModelClient, ModelConfig
@@ -22,12 +22,16 @@ class IOSAgentConfig:
     session_id: str | None = None
     device_id: str | None = None  # iOS device UDID
     lang: str = "cn"
-    system_prompt: str | None = None
+    system_prompt: str = ""
     verbose: bool = True
+    batch_actions: bool = False
+    batch_size: int = 1
 
     def __post_init__(self):
-        if self.system_prompt is None:
+        if not self.system_prompt:
             self.system_prompt = get_system_prompt(self.lang)
+        if self.batch_size < 1:
+            self.batch_size = 1
 
 
 @dataclass
@@ -194,6 +198,10 @@ class IOSPhoneAgent:
         # Get model response
         try:
             response = self.model_client.request(self._context)
+            if not response.action.strip():
+                if self.agent_config.verbose:
+                    print("Model returned empty action, retrying once...")
+                response = self.model_client.request(self._context)
         except Exception as e:
             if self.agent_config.verbose:
                 traceback.print_exc()
@@ -207,11 +215,12 @@ class IOSPhoneAgent:
 
         # Parse action from response
         try:
-            action = parse_action(response.action)
+            max_actions = self.agent_config.batch_size if self.agent_config.batch_actions else 1
+            actions = parse_actions(response.action, max_actions)
         except ValueError:
             if self.agent_config.verbose:
                 traceback.print_exc()
-            action = finish(message=response.action)
+            actions = [do(action="Wait", duration="1 seconds")]
 
         if self.agent_config.verbose:
             # Print thinking process
@@ -222,23 +231,36 @@ class IOSPhoneAgent:
             print(response.thinking)
             print("-" * 50)
             print(f"🎯 {msgs['action']}:")
-            print(json.dumps(action, ensure_ascii=False, indent=2))
+            if len(actions) == 1:
+                print(json.dumps(actions[0], ensure_ascii=False, indent=2))
+            else:
+                print(json.dumps(actions, ensure_ascii=False, indent=2))
             print("=" * 50 + "\n")
 
         # Remove image from context to save space
         self._context[-1] = MessageBuilder.remove_images_from_message(self._context[-1])
 
-        # Execute action
-        try:
-            result = self.action_handler.execute(
-                action, screenshot.width, screenshot.height
-            )
-        except Exception as e:
-            if self.agent_config.verbose:
-                traceback.print_exc()
-            result = self.action_handler.execute(
-                finish(message=str(e)), screenshot.width, screenshot.height
-            )
+        action = actions[0]
+        result = self.action_handler.execute(
+            finish(message="No action to execute"), screenshot.width, screenshot.height
+        )
+
+        for item in actions:
+            action = item
+            try:
+                result = self.action_handler.execute(
+                    action, screenshot.width, screenshot.height
+                )
+            except Exception as e:
+                if self.agent_config.verbose:
+                    traceback.print_exc()
+                action = finish(message=str(e))
+                result = self.action_handler.execute(
+                    action, screenshot.width, screenshot.height
+                )
+
+            if action.get("_metadata") == "finish" or result.should_finish:
+                break
 
         # Add assistant response to context
         self._context.append(
