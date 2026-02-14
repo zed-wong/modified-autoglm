@@ -14,6 +14,7 @@ Environment Variables:
 """
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -25,6 +26,7 @@ from openai import OpenAI
 from phone_agent import PhoneAgent
 from phone_agent.agent import AgentConfig
 from phone_agent.agent_ios import IOSAgentConfig, IOSPhoneAgent
+from phone_agent.config import get_system_prompt
 from phone_agent.config.apps import list_supported_apps
 from phone_agent.config.apps_harmonyos import list_supported_apps as list_harmonyos_apps
 from phone_agent.config.apps_ios import list_supported_apps as list_ios_apps
@@ -32,6 +34,38 @@ from phone_agent.device_factory import DeviceType, get_device_factory, set_devic
 from phone_agent.model import ModelConfig
 from phone_agent.xctest import XCTestConnection
 from phone_agent.xctest import list_devices as list_ios_devices
+
+
+def _load_dotenv(path: str) -> None:
+    if not os.path.isfile(path):
+        return
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export ") :].strip()
+                if "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if not key:
+                    continue
+
+                if (value.startswith('"') and value.endswith('"')) or (
+                    value.startswith("'") and value.endswith("'")
+                ):
+                    value = value[1:-1]
+
+                if key not in os.environ:
+                    os.environ[key] = value
+    except Exception:
+        return
 
 
 def check_system_requirements(
@@ -354,6 +388,7 @@ def check_model_api(base_url: str, model_name: str, api_key: str = "EMPTY") -> b
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
+    _load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
     parser = argparse.ArgumentParser(
         description="Phone Agent - AI-powered phone automation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -382,6 +417,15 @@ Examples:
 
     # List supported apps
     python main.py --list-apps
+
+    # Start HTTP server (Android/ADB only)
+    python main.py --serve --host 127.0.0.1 --port 8080
+
+    # Call HTTP API
+    curl -X POST http://127.0.0.1:8080/run -H 'Content-Type: application/json' -d '{"task":"Open Chrome"}'
+
+    # Streaming (SSE)
+    curl -N -X POST http://127.0.0.1:8080/run/stream -H 'Content-Type: application/json' -d '{"task":"Open Chrome"}'
 
     # iOS specific examples
     # Run with iOS device
@@ -495,7 +539,65 @@ Examples:
     )
 
     parser.add_argument(
+        "--auto-confirm-sensitive",
+        action="store_true",
+        help="Automatically confirm sensitive operations",
+    )
+
+    parser.add_argument(
+        "--memory-file",
+        type=str,
+        default=os.getenv("PHONE_AGENT_MEMORY_FILE"),
+        help="Path to persistent memory file (JSON or text)",
+    )
+
+    parser.add_argument(
+        "--batch-actions",
+        action="store_true",
+        help="Allow one model response to execute multiple actions",
+    )
+
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=int(os.getenv("PHONE_AGENT_BATCH_SIZE", "3")),
+        help="Maximum actions executed from one response when batch mode is enabled",
+    )
+
+    parser.add_argument(
         "--list-apps", action="store_true", help="List supported apps and exit"
+    )
+
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help=(
+            "Start HTTP server (Android/ADB only). "
+            "Endpoints: GET /health, POST /run (JSON: {task}), POST /run/stream (SSE). "
+            "Defaults in server mode: batch_actions=true, auto_confirm_sensitive=true. "
+            "Example: curl -X POST http://127.0.0.1:8080/run -H 'Content-Type: application/json' -d '{\"task\":\"...\"}'"
+        ),
+    )
+
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=os.getenv("PHONE_AGENT_HTTP_HOST", "127.0.0.1"),
+        help="HTTP server host (default: 127.0.0.1)",
+    )
+
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("PHONE_AGENT_HTTP_PORT", "8080")),
+        help="HTTP server port (default: 8080)",
+    )
+
+    parser.add_argument(
+        "--http-token",
+        type=str,
+        default=os.getenv("PHONE_AGENT_HTTP_TOKEN"),
+        help="Optional bearer token for HTTP API",
     )
 
     parser.add_argument(
@@ -522,6 +624,45 @@ Examples:
     )
 
     return parser.parse_args()
+
+
+def build_system_prompt(
+    lang: str,
+    memory_file: str | None,
+    batch_actions: bool = False,
+    batch_size: int = 3,
+) -> str:
+    prompt = get_system_prompt(lang)
+    if memory_file:
+        memory_path = os.path.expanduser(memory_file)
+        if os.path.isfile(memory_path):
+            try:
+                with open(memory_path, encoding="utf-8") as f:
+                    raw = f.read().strip()
+                if raw:
+                    if memory_path.endswith(".json"):
+                        memory_obj = json.loads(raw)
+                        memory_text = json.dumps(memory_obj, ensure_ascii=False, indent=2)
+                    else:
+                        memory_text = raw
+
+                    prompt = (
+                        prompt
+                        + "\n\n[Persistent Memory]\nUse these stable user preferences/facts when relevant.\n"
+                        + memory_text
+                    )
+            except Exception as e:
+                print(f"Warning: failed to load memory file '{memory_path}': {e}")
+
+    if batch_actions:
+        prompt += (
+            "\n\n[Batch Action Mode]\n"
+            f"When helpful, output up to {max(1, batch_size)} actions in <answer>, one action per line.\n"
+            "Each line must be do(...) or finish(...).\n"
+            "Avoid Interact unless user input is truly required."
+        )
+
+    return prompt
 
 
 def handle_ios_device_commands(args) -> bool:
@@ -731,6 +872,37 @@ def main():
     if handle_device_commands(args):
         return
 
+    if args.serve:
+        if device_type != DeviceType.ADB:
+            print("Error: HTTP server mode currently supports Android/ADB only")
+            sys.exit(2)
+
+        from phone_agent.http_server import serve
+
+        default_memory = args.memory_file
+        if not default_memory:
+            candidate = os.path.join(os.path.dirname(__file__), "memory.json")
+            if os.path.isfile(candidate):
+                default_memory = candidate
+
+        print(f"Starting HTTP server on http://{args.host}:{args.port}")
+        serve(
+            host=args.host,
+            port=args.port,
+            base_url=args.base_url,
+            model=args.model,
+            api_key=args.apikey,
+            device_id=args.device_id,
+            lang=args.lang,
+            max_steps=args.max_steps,
+            batch_actions=True,
+            batch_size=args.batch_size,
+            memory_file=default_memory,
+            auto_confirm_sensitive_default=True,
+            auth_token=args.http_token,
+        )
+        return
+
     # Run system requirements check before proceeding
     if not check_system_requirements(
         device_type,
@@ -751,6 +923,13 @@ def main():
         api_key=args.apikey,
         lang=args.lang,
     )
+    confirmation_callback = (lambda _message: True) if args.auto_confirm_sensitive else None
+    system_prompt = build_system_prompt(
+        args.lang,
+        args.memory_file,
+        args.batch_actions,
+        args.batch_size,
+    )
 
     if device_type == DeviceType.IOS:
         # Create iOS agent
@@ -760,11 +939,15 @@ def main():
             device_id=args.device_id,
             verbose=not args.quiet,
             lang=args.lang,
+            system_prompt=system_prompt,
+            batch_actions=args.batch_actions,
+            batch_size=args.batch_size,
         )
 
         agent = IOSPhoneAgent(
             model_config=model_config,
             agent_config=agent_config,
+            confirmation_callback=confirmation_callback,
         )
     else:
         # Create Android/HarmonyOS agent
@@ -773,11 +956,15 @@ def main():
             device_id=args.device_id,
             verbose=not args.quiet,
             lang=args.lang,
+            system_prompt=system_prompt,
+            batch_actions=args.batch_actions,
+            batch_size=args.batch_size,
         )
 
         agent = PhoneAgent(
             model_config=model_config,
             agent_config=agent_config,
+            confirmation_callback=confirmation_callback,
         )
 
     # Print header
