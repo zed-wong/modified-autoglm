@@ -327,7 +327,7 @@ def serve(
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
+            self.send_header("Connection", "close")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
@@ -479,6 +479,7 @@ def serve(
                                 )
                             else:
                                 _server_log(f"DONE /run/stream {ev} pid={proc.pid}")
+                            self.close_connection = True
                             break
 
                         if "🎯" in line and ("执行动作" in line or "action" in line.lower()):
