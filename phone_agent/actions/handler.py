@@ -387,6 +387,83 @@ def parse_action(response: str) -> dict[str, Any]:
         raise ValueError(f"Failed to parse action: {e}")
 
 
+def parse_actions(response: str, max_actions: int) -> list[dict[str, Any]]:
+    expressions = extract_action_expressions(response)
+    if not expressions:
+        raise ValueError("Failed to parse action: empty response")
+
+    actions: list[dict[str, Any]] = []
+    for expression in expressions[:max_actions]:
+        actions.append(parse_action(expression))
+    return actions
+
+
+def extract_action_expressions(response: str) -> list[str]:
+    text = response.strip()
+    if not text:
+        return []
+
+    expressions: list[str] = []
+    idx = 0
+
+    while idx < len(text):
+        do_idx = text.find("do(", idx)
+        finish_idx = text.find("finish(", idx)
+        candidates = [i for i in (do_idx, finish_idx) if i != -1]
+        if not candidates:
+            break
+
+        start = min(candidates)
+        expression = _extract_balanced_expression(text, start)
+        if expression is None:
+            break
+
+        expressions.append(expression.strip())
+        idx = start + len(expression)
+
+    return expressions
+
+
+def _extract_balanced_expression(text: str, start: int) -> str | None:
+    in_single_quote = False
+    in_double_quote = False
+    escaped = False
+    depth = 0
+
+    for i in range(start, len(text)):
+        ch = text[i]
+
+        if escaped:
+            escaped = False
+            continue
+
+        if ch == "\\":
+            escaped = True
+            continue
+
+        if ch == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            continue
+
+        if ch == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            continue
+
+        if in_single_quote or in_double_quote:
+            continue
+
+        if ch == "(":
+            depth += 1
+            continue
+
+        if ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+
+    return None
+
+
 def do(**kwargs) -> dict[str, Any]:
     """Helper function for creating 'do' actions."""
     kwargs["_metadata"] = "do"

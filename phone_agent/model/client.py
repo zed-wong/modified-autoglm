@@ -196,24 +196,77 @@ class ModelClient:
             parts = content.split("finish(message=", 1)
             thinking = parts[0].strip()
             action = "finish(message=" + parts[1]
-            return thinking, action
+            return thinking, self._sanitize_action(action)
 
         # Rule 2: Check for do(action=
         if "do(action=" in content:
             parts = content.split("do(action=", 1)
             thinking = parts[0].strip()
             action = "do(action=" + parts[1]
-            return thinking, action
+            return thinking, self._sanitize_action(action)
 
         # Rule 3: Fallback to legacy XML tag parsing
         if "<answer>" in content:
             parts = content.split("<answer>", 1)
             thinking = parts[0].replace("<think>", "").replace("</think>", "").strip()
             action = parts[1].replace("</answer>", "").strip()
-            return thinking, action
+            return thinking, self._sanitize_action(action)
 
         # Rule 4: No markers found, return content as action
-        return "", content
+        return "", self._sanitize_action(content)
+
+    def _sanitize_action(self, action: str) -> str:
+        cleaned = action.replace("</answer>", "").replace("<answer>", "").strip()
+
+        starts: list[int] = []
+        for marker in ("do(", "finish("):
+            idx = cleaned.find(marker)
+            if idx != -1:
+                starts.append(idx)
+
+        if not starts:
+            return cleaned
+
+        return cleaned[min(starts) :].strip()
+
+    def _extract_balanced_call(self, text: str, start: int) -> str | None:
+        in_single_quote = False
+        in_double_quote = False
+        escaped = False
+        depth = 0
+
+        for i in range(start, len(text)):
+            ch = text[i]
+
+            if escaped:
+                escaped = False
+                continue
+
+            if ch == "\\":
+                escaped = True
+                continue
+
+            if ch == "'" and not in_double_quote:
+                in_single_quote = not in_single_quote
+                continue
+
+            if ch == '"' and not in_single_quote:
+                in_double_quote = not in_double_quote
+                continue
+
+            if in_single_quote or in_double_quote:
+                continue
+
+            if ch == "(":
+                depth += 1
+                continue
+
+            if ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+
+        return None
 
 
 class MessageBuilder:
