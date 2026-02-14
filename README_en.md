@@ -924,8 +924,34 @@ python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b-multilingual"
 # Run Agent (single task)
 python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b-multilingual" "your task description"
 
+# Batch action mode (reduces screenshot/model roundtrips; useful for predictable multi-tap like PIN/OTP)
+python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b-multilingual" --batch-actions --batch-size 6 "your task description"
+
 # View supported apps list
 python main.py --list-apps
+
+# Start HTTP server (Android/ADB; for other tools to call via HTTP)
+python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b-multilingual" --serve --host 127.0.0.1 --port 8080
+
+# You can also configure Open-AutoGLM/.env and start directly (no manual export required)
+# python main.py --serve --host 127.0.0.1 --port 8080
+```
+
+HTTP API examples:
+
+```bash
+curl -X GET http://127.0.0.1:8080/health
+
+curl -X POST http://127.0.0.1:8080/run \
+  -H 'Content-Type: application/json' \
+  -d '{"task": "Open Chrome and search for nearby coffee"}'
+
+# Streaming (SSE): returns model output incrementally until final result
+curl -N -X POST http://127.0.0.1:8080/run/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"task": "Open Chrome and search for nearby coffee"}'
+
+# Cancel: if the client disconnects (e.g., Ctrl+C to stop curl), the server will terminate the running task process
 ```
 
 ---

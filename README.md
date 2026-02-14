@@ -976,14 +976,40 @@ adb kill-server && adb start-server
 # 安装依赖
 pip install -r requirements.txt && pip install -e .
 
-# 运行 Agent(交互模式)
-python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b"
+  # 运行 Agent(交互模式)
+  python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b"
 
 # 运行 Agent(单次任务)
 python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b" "你的任务描述"
 
+  # 批量动作模式（减少每次点击都要截图/请求的开销；PIN/验证码等可预测连点建议开启）
+  python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b" --batch-actions --batch-size 6 "你的任务描述"
+
 # 查看支持的应用列表
 python main.py --list-apps
+
+# 启动 HTTP 服务（Android/ADB；供其他工具通过 HTTP 调用）
+python main.py --base-url {MODEL_URL} --model "autoglm-phone-9b" --serve --host 127.0.0.1 --port 8080
+
+# 也可以直接配置 Open-AutoGLM/.env 后启动（无需手动 export 环境变量）
+# python main.py --serve --host 127.0.0.1 --port 8080
+```
+
+HTTP API 示例：
+
+```bash
+curl -X GET http://127.0.0.1:8080/health
+
+curl -X POST http://127.0.0.1:8080/run \
+  -H 'Content-Type: application/json' \
+  -d '{"task": "打开微信，对文件传输助手发送消息：你好"}'
+
+# 流式输出（SSE），会持续返回模型思考/输出，直到最终 result
+curl -N -X POST http://127.0.0.1:8080/run/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"task": "打开微信，对文件传输助手发送消息：你好"}'
+
+# 取消任务：如果客户端断开连接（例如 Ctrl+C 终止 curl），服务端会终止当前任务进程
 ```
 
 ---
