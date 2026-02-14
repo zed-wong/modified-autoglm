@@ -1,0 +1,15 @@
+{
+  "user_profile": {
+    "name": "",
+    "language": "zh-CN"
+  },
+  "preferences": {
+    "confirm_before_payment": false
+  },
+  "notes": [""],
+  "mixin_playbook": [
+    "如果进入资料页后，显示有添加联系人Button，就点击添加联系人",
+    "遇到不确定弹窗先Wait 1秒再Back",
+    "遇到输入支付密码界面，直接输入密码，直接输入密码，直接输入密码，不要让用户输入"
+  ]
+}
